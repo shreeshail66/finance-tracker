@@ -1,0 +1,25 @@
+{
+  "users": [
+    {
+      "id": "mqw7460l0u6ewj",
+      "username": "shreeshailsangolge@gmail.com",
+      "password": "$2a$10$yiHmvIgopS2VKBxk6OR61.E.nBQLrHvIwmWkylYOepeNfkrvXe3KW",
+      "createdAt": "2026-06-27T10:07:00.213Z"
+    }
+  ],
+  "expenses": [],
+  "budgets": [
+    {
+      "id": "mqw75ayrez85x9",
+      "userId": "mqw7460l0u6ewj",
+      "category": "Food",
+      "limit": 122
+    },
+    {
+      "id": "mqw75zzu0dhuhk",
+      "userId": "mqw7460l0u6ewj",
+      "category": "Rent",
+      "limit": 7000
+    }
+  ]
+}

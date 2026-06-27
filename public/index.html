@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Personal Finance Tracker</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ===================== AUTH SCREEN ===================== -->
+<div id="authScreen" class="auth-wrap">
+  <div class="auth-card">
+    <h1>💰 Finance Tracker</h1>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="login">Login</button>
+      <button class="tab-btn" data-tab="register">Register</button>
+    </div>
+
+    <form id="loginForm" class="auth-form">
+      <input type="text" id="loginUsername" placeholder="Username" required autocomplete="username">
+      <input type="password" id="loginPassword" placeholder="Password" required autocomplete="current-password">
+      <button type="submit">Log In</button>
+    </form>
+
+    <form id="registerForm" class="auth-form hidden">
+      <input type="text" id="registerUsername" placeholder="Username" required autocomplete="username">
+      <input type="password" id="registerPassword" placeholder="Password (min 4 chars)" required autocomplete="new-password">
+      <button type="submit">Create Account</button>
+    </form>
+
+    <p id="authError" class="error hidden"></p>
+  </div>
+</div>
+
+<!-- ===================== DASHBOARD ===================== -->
+<div id="dashboard" class="dashboard hidden">
+  <header class="topbar">
+    <h1>💰 Finance Tracker</h1>
+    <div class="topbar-right">
+      <span id="welcomeUser"></span>
+      <button id="logoutBtn" class="btn-secondary">Log Out</button>
+    </div>
+  </header>
+
+  <div id="alertsBanner" class="alerts-banner hidden"></div>
+
+  <div class="grid">
+
+    <!-- Add Expense -->
+    <section class="card">
+      <h2>Add Expense</h2>
+      <form id="expenseForm" class="expense-form">
+        <input type="date" id="expDate" required>
+        <input type="text" id="expCategory" list="categoryList" placeholder="Category" required>
+        <datalist id="categoryList">
+          <option value="Food"></option>
+          <option value="Rent"></option>
+          <option value="Transport"></option>
+          <option value="Utilities"></option>
+          <option value="Entertainment"></option>
+          <option value="Shopping"></option>
+          <option value="Health"></option>
+          <option value="Other"></option>
+        </datalist>
+        <input type="number" id="expAmount" placeholder="Amount" step="0.01" min="0" required>
+        <input type="text" id="expDescription" placeholder="Description (optional)">
+        <button type="submit">Add Expense</button>
+      </form>
+    </section>
+
+    <!-- Budgets -->
+    <section class="card">
+      <h2>Monthly Budgets</h2>
+      <form id="budgetForm" class="expense-form">
+        <input type="text" id="budCategory" list="categoryList" placeholder="Category" required>
+        <input type="number" id="budLimit" placeholder="Monthly limit" step="0.01" min="0" required>
+        <button type="submit">Set Budget</button>
+      </form>
+      <ul id="budgetList" class="budget-list"></ul>
+    </section>
+
+    <!-- Charts -->
+    <section class="card chart-card">
+      <h2>Spending by Category (this month)</h2>
+      <canvas id="categoryChart"></canvas>
+    </section>
+
+    <section class="card chart-card">
+      <h2>Monthly Trend</h2>
+      <canvas id="monthlyChart"></canvas>
+    </section>
+
+    <!-- Expenses Table -->
+    <section class="card wide">
+      <div class="card-header-row">
+        <h2>Expenses</h2>
+        <div class="export-row">
+          <input type="month" id="exportMonth">
+          <button id="exportCsvBtn" class="btn-secondary">Export CSV</button>
+        </div>
+      </div>
+      <table id="expenseTable">
+        <thead>
+          <tr><th>Date</th><th>Category</th><th>Amount</th><th>Description</th><th></th></tr>
+        </thead>
+        <tbody id="expenseTableBody"></tbody>
+      </table>
+    </section>
+
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
