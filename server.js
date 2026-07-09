@@ -4,21 +4,69 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
-const low = require('lowdb');
-const FileSync = require('lowdb/adapters/FileSync');
+const mongoose = require('mongoose');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
 const PORT = process.env.PORT || 4000;
+const MONGODB_URI = process.env.MONGODB_URI;
 
-// ---- DB setup (simple JSON file, no native build tools needed) ----
-const adapter = new FileSync(path.join(__dirname, 'db.json'));
-const db = low(adapter);
-db.defaults({ users: [], expenses: [], budgets: [] }).write();
+if (!MONGODB_URI) {
+  console.error('Missing MONGODB_URI environment variable. Set it in Vercel → Settings → Environment Variables.');
+}
+
+// ---- DB setup (MongoDB Atlas via Mongoose) ----
+// Reuse the connection across serverless invocations instead of reconnecting every request.
+let connPromise = null;
+function connectDB() {
+  if (mongoose.connection.readyState === 1) return Promise.resolve();
+  if (!connPromise) {
+    connPromise = mongoose.connect(MONGODB_URI);
+  }
+  return connPromise;
+}
+
+const userSchema = new mongoose.Schema({
+  id: { type: String, unique: true, index: true },
+  username: { type: String, unique: true, index: true },
+  password: String,
+  createdAt: { type: String, default: () => new Date().toISOString() }
+});
+
+const expenseSchema = new mongoose.Schema({
+  id: { type: String, unique: true, index: true },
+  userId: { type: String, index: true },
+  date: String,
+  category: String,
+  amount: Number,
+  description: String
+});
+
+const budgetSchema = new mongoose.Schema({
+  id: { type: String, unique: true, index: true },
+  userId: { type: String, index: true },
+  category: String,
+  limit: Number
+});
+
+const User = mongoose.models.User || mongoose.model('User', userSchema);
+const Expense = mongoose.models.Expense || mongoose.model('Expense', expenseSchema);
+const Budget = mongoose.models.Budget || mongoose.model('Budget', budgetSchema);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Make sure we're connected before handling any /api request
+app.use('/api', async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error('DB connection error:', err);
+    res.status(500).json({ error: 'Database connection failed' });
+  }
+});
 
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -39,7 +87,7 @@ function auth(req, res, next) {
 
 // ================= AUTH ROUTES =================
 
-app.post('/api/register', (req, res) => {
+app.post('/api/register', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });
@@ -47,20 +95,24 @@ app.post('/api/register', (req, res) => {
   if (password.length < 4) {
     return res.status(400).json({ error: 'Password must be at least 4 characters' });
   }
-  const existing = db.get('users').find({ username }).value();
+  const existing = await User.findOne({ username });
   if (existing) return res.status(409).json({ error: 'Username already taken' });
 
   const hashed = bcrypt.hashSync(password, 10);
-  const user = { id: genId(), username, password: hashed, createdAt: new Date().toISOString() };
-  db.get('users').push(user).write();
+  const user = await User.create({
+    id: genId(),
+    username,
+    password: hashed,
+    createdAt: new Date().toISOString()
+  });
 
   const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
   res.json({ token, username: user.username });
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
-  const user = db.get('users').find({ username }).value();
+  const user = await User.findOne({ username });
   if (!user || !bcrypt.compareSync(password, user.password)) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
@@ -70,60 +122,52 @@ app.post('/api/login', (req, res) => {
 
 // ================= EXPENSE ROUTES =================
 
-app.get('/api/expenses', auth, (req, res) => {
-  const expenses = db.get('expenses')
-    .filter({ userId: req.userId })
-    .orderBy(['date'], ['desc'])
-    .value();
+app.get('/api/expenses', auth, async (req, res) => {
+  const expenses = await Expense.find({ userId: req.userId }).sort({ date: -1 });
   res.json(expenses);
 });
 
-app.post('/api/expenses', auth, (req, res) => {
+app.post('/api/expenses', auth, async (req, res) => {
   const { date, category, amount, description } = req.body;
   if (!date || !category || amount === undefined) {
     return res.status(400).json({ error: 'date, category and amount are required' });
   }
-  const expense = {
+  const expense = await Expense.create({
     id: genId(),
     userId: req.userId,
     date,
     category,
     amount: parseFloat(amount),
     description: description || ''
-  };
-  db.get('expenses').push(expense).write();
+  });
   res.status(201).json(expense);
 });
 
-app.put('/api/expenses/:id', auth, (req, res) => {
-  const expense = db.get('expenses').find({ id: req.params.id, userId: req.userId }).value();
+app.put('/api/expenses/:id', auth, async (req, res) => {
+  const expense = await Expense.findOne({ id: req.params.id, userId: req.userId });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
 
   const { date, category, amount, description } = req.body;
-  db.get('expenses')
-    .find({ id: req.params.id })
-    .assign({
-      date: date ?? expense.date,
-      category: category ?? expense.category,
-      amount: amount !== undefined ? parseFloat(amount) : expense.amount,
-      description: description ?? expense.description
-    })
-    .write();
-  res.json(db.get('expenses').find({ id: req.params.id }).value());
+  expense.date = date ?? expense.date;
+  expense.category = category ?? expense.category;
+  expense.amount = amount !== undefined ? parseFloat(amount) : expense.amount;
+  expense.description = description ?? expense.description;
+  await expense.save();
+  res.json(expense);
 });
 
-app.delete('/api/expenses/:id', auth, (req, res) => {
-  const expense = db.get('expenses').find({ id: req.params.id, userId: req.userId }).value();
+app.delete('/api/expenses/:id', auth, async (req, res) => {
+  const expense = await Expense.findOne({ id: req.params.id, userId: req.userId });
   if (!expense) return res.status(404).json({ error: 'Expense not found' });
-  db.set('expenses', db.get('expenses').filter(e => e.id !== req.params.id).value()).write();
+  await Expense.deleteOne({ id: req.params.id, userId: req.userId });
   res.json({ success: true });
 });
 
 // ================= REPORTS =================
 
 // Monthly totals for the last 12 months
-app.get('/api/reports/monthly', auth, (req, res) => {
-  const expenses = db.get('expenses').filter({ userId: req.userId }).value();
+app.get('/api/reports/monthly', auth, async (req, res) => {
+  const expenses = await Expense.find({ userId: req.userId });
   const totals = {};
   expenses.forEach(e => {
     const month = e.date.slice(0, 7); // YYYY-MM
@@ -136,11 +180,10 @@ app.get('/api/reports/monthly', auth, (req, res) => {
 });
 
 // Category breakdown for a given month (defaults to current month)
-app.get('/api/reports/category', auth, (req, res) => {
+app.get('/api/reports/category', auth, async (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7);
-  const expenses = db.get('expenses')
-    .filter(e => e.userId === req.userId && e.date.slice(0, 7) === month)
-    .value();
+  const allExpenses = await Expense.find({ userId: req.userId });
+  const expenses = allExpenses.filter(e => e.date.slice(0, 7) === month);
   const totals = {};
   expenses.forEach(e => {
     totals[e.category] = (totals[e.category] || 0) + e.amount;
@@ -154,36 +197,36 @@ app.get('/api/reports/category', auth, (req, res) => {
 
 // ================= BUDGETS & ALERTS =================
 
-app.get('/api/budgets', auth, (req, res) => {
-  res.json(db.get('budgets').filter({ userId: req.userId }).value());
+app.get('/api/budgets', auth, async (req, res) => {
+  res.json(await Budget.find({ userId: req.userId }));
 });
 
-app.post('/api/budgets', auth, (req, res) => {
+app.post('/api/budgets', auth, async (req, res) => {
   const { category, limit } = req.body;
   if (!category || limit === undefined) {
     return res.status(400).json({ error: 'category and limit are required' });
   }
-  const existing = db.get('budgets').find({ userId: req.userId, category }).value();
+  const existing = await Budget.findOne({ userId: req.userId, category });
   if (existing) {
-    db.get('budgets').find({ userId: req.userId, category }).assign({ limit: parseFloat(limit) }).write();
+    existing.limit = parseFloat(limit);
+    await existing.save();
   } else {
-    db.get('budgets').push({ id: genId(), userId: req.userId, category, limit: parseFloat(limit) }).write();
+    await Budget.create({ id: genId(), userId: req.userId, category, limit: parseFloat(limit) });
   }
-  res.json(db.get('budgets').filter({ userId: req.userId }).value());
+  res.json(await Budget.find({ userId: req.userId }));
 });
 
-app.delete('/api/budgets/:id', auth, (req, res) => {
-  db.set('budgets', db.get('budgets').filter(b => !(b.id === req.params.id && b.userId === req.userId)).value()).write();
+app.delete('/api/budgets/:id', auth, async (req, res) => {
+  await Budget.deleteOne({ id: req.params.id, userId: req.userId });
   res.json({ success: true });
 });
 
 // Alerts: categories where current-month spend has reached/exceeded the budget
-app.get('/api/budget-alerts', auth, (req, res) => {
+app.get('/api/budget-alerts', auth, async (req, res) => {
   const month = new Date().toISOString().slice(0, 7);
-  const budgets = db.get('budgets').filter({ userId: req.userId }).value();
-  const expenses = db.get('expenses')
-    .filter(e => e.userId === req.userId && e.date.slice(0, 7) === month)
-    .value();
+  const budgets = await Budget.find({ userId: req.userId });
+  const allExpenses = await Expense.find({ userId: req.userId });
+  const expenses = allExpenses.filter(e => e.date.slice(0, 7) === month);
 
   const spendByCategory = {};
   expenses.forEach(e => {
@@ -203,9 +246,9 @@ app.get('/api/budget-alerts', auth, (req, res) => {
 
 // ================= CSV EXPORT =================
 
-app.get('/api/export/csv', auth, (req, res) => {
+app.get('/api/export/csv', auth, async (req, res) => {
   const month = req.query.month; // optional YYYY-MM filter
-  let expenses = db.get('expenses').filter({ userId: req.userId }).value();
+  let expenses = await Expense.find({ userId: req.userId });
   if (month) {
     expenses = expenses.filter(e => e.date.slice(0, 7) === month);
   }
@@ -235,6 +278,19 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Personal Finance Tracker running at http://localhost:${PORT}`);
-});
+// Vercel runs this as a serverless function via module.exports;
+// app.listen only matters for local `npm start` / `npm run dev`.
+if (require.main === module) {
+  connectDB()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`Personal Finance Tracker running at http://localhost:${PORT}`);
+      });
+    })
+    .catch(err => {
+      console.error('Failed to connect to MongoDB:', err);
+      process.exit(1);
+    });
+}
+
+module.exports = app;

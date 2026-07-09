@@ -12,7 +12,7 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "lowdb": "^1.0.0"
+    "mongoose": "^9.7.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
