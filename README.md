@@ -1,3 +1,9 @@
+ Live Demo: https://finance-tracker-tau-gules.vercel.app/
+
+ ## 🚀 Live Demo
+
+👉 **[Click Here to View the Live Project](https://finance-tracker-tau-gules.vercel.app/)**
+
 # Personal Finance Tracker
 
 A full-stack personal finance tracker with login, expense tracking, monthly
